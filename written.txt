@@ -1,5 +1,37 @@
 ﻿Q3. What happens to the bounding boxes with update + fullRefit?
 
+The bounding boxes stay correct, since every box still encloses all of its circles, but they
+get worse over time. fullRefit only resizes the boxes and never changes the tree structure, so
+circles stay grouped with the neighbours they had when the tree was first built. As the circles
+drift apart, the boxes for those groups stretch to cover circles that are now far from each
+other. After a few seconds most internal boxes span large parts of the screen and overlap heavily,
+until the hierarchy is almost meaningless. Rendering still gives the right image, but a pixel
+now lands inside many overlapping boxes, so tracing visits many more nodes and circle tests and
+the BVH stops speeding things up.
+
 Q4. What happens with reset (rebuild every frame) instead?
 
+The tree is rebuilt with the SAH binning every frame from the circles' current positions. The
+boxes stay tight around nearby circles and overlap very little, just like the BVH on the first
+frame, no matter how long the simulation runs. The box layout changes from frame to frame, and
+it can jump suddenly when a circle crosses a split plane and gets regrouped with different
+neighbours. The cost is building the whole tree, O(n log n), every frame instead of the O(n)
+refit. With 100 circles that is cheap compared with tracing 4 samples x 1024 x 768 pixels, so
+traversal stays fast while a refit-only BVH keeps getting slower.
+
 Q5. Why are some circles drawn with their sides cut off?
+
+There are two causes:
+1. Circle centres are chosen uniformly in [0, width] x [0, height] and the radius is ignored.
+   A circle whose centre is less than one radius from the window border hangs partly off screen,
+   so the window clips that side flat. Moving circles (Q3) make this worse because they can drift
+   off screen. Fix: spawn centres in [r, width - r] x [r, height - r] and make circles bounce off
+   the walls in Scene::update.
+2. Each pixel was sampled at its top-left corner (x, y) instead of its centre
+   (x + 0.5, y + 0.5). That shifts the traced image half a pixel relative to the boxes drawn on
+   top of it. A box's 1px outline sits just outside its max edge, so it is rasterised onto the
+   last pixel column or row that is still inside the circle and paints over it. The circle then
+   looks flat where it touches the box's right or bottom edge. Fix: sample around the pixel
+   centre (the antialiasing samples become (x + 0.5 +- 0.3333, y + 0.5 +- 0.3333)). Circle pixels
+   and outline pixels then no longer overlap.
+Both fixes are in main.cpp.
